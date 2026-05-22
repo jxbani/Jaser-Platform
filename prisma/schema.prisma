@@ -1,0 +1,377 @@
+// =============================================================================
+// Jaser Platform – Prisma schema
+// National academic–industry collaboration platform.
+//
+// PostgreSQL Row-Level Security policies are declared in the SQL migration
+// alongside this schema (see prisma/migrations/.../migration.sql). The Prisma
+// data model only models the *relationships* that those policies depend on;
+// authorization itself is enforced by the database.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  extensions        = [pgcrypto, citext]
+}
+
+// ---------------------------------------------------------------------------
+// Enumerations
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  STUDENT
+  PROFESSOR
+  COMPANY_REP
+  ADMIN
+}
+
+enum AcademicEntityType {
+  UNIVERSITY
+  FACULTY
+  DEPARTMENT
+}
+
+enum ChallengeVisibility {
+  PUBLIC
+  PRIVATE_NDA
+}
+
+enum ChallengeStatus {
+  DRAFT
+  OPEN
+  IN_REVIEW
+  AWARDED
+  CLOSED
+  ARCHIVED
+}
+
+enum ProjectStatus {
+  PROPOSED
+  IN_PROGRESS
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  COMPLETED
+}
+
+enum ProjectMemberRole {
+  STUDENT_LEAD
+  STUDENT
+  PROFESSOR_SUPERVISOR
+  COMPANY_MENTOR
+}
+
+enum NdaStatus {
+  PENDING
+  SIGNED
+  REVOKED
+  EXPIRED
+}
+
+enum TaxonomyDiscipline {
+  TECHNOLOGY
+  ENGINEERING
+  SCIENCES
+  MEDICINE
+  LAW
+  BUSINESS
+  HUMANITIES
+  ARTS
+  SOCIAL_SCIENCES
+  INTERDISCIPLINARY
+}
+
+// ---------------------------------------------------------------------------
+// Users & Companies
+// ---------------------------------------------------------------------------
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String    @unique @db.Citext
+  fullName        String
+  role            UserRole
+  reputationScore Int       @default(0)
+  /// Flexible profile blob (bio, links, avatar, locale, etc.)
+  profileData     Json      @default("{}")
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Academic affiliation – set for students/professors.
+  departmentId String? @db.Uuid
+  department   AcademicEntity? @relation("UserDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+
+  // Company affiliation – set for company reps.
+  companyId String?  @db.Uuid
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // Reverse relations
+  postedChallenges Challenge[]      @relation("ChallengePoster")
+  projectMembers   ProjectMember[]
+  ndaSignatures    NdaSignature[]
+  challengeAccess  ChallengeAccess[]
+  auditEvents      AuditEvent[]
+
+  @@index([role])
+  @@index([departmentId])
+  @@index([companyId])
+  @@map("users")
+}
+
+model Company {
+  id          String   @id @default(uuid()) @db.Uuid
+  legalName   String   @unique
+  displayName String
+  taxId       String?  @unique
+  /// Logo, website, sector tags, contact info, etc.
+  profileData Json     @default("{}")
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  representatives User[]
+  challenges      Challenge[]
+  ndas            Nda[]
+
+  @@map("companies")
+}
+
+// ---------------------------------------------------------------------------
+// Academic Entities (hierarchical: University → Faculty → Department)
+// ---------------------------------------------------------------------------
+
+model AcademicEntity {
+  id       String             @id @default(uuid()) @db.Uuid
+  name     String
+  type     AcademicEntityType
+  /// Optional country / region code, accreditation, etc.
+  metadata Json               @default("{}")
+
+  parentId String?           @db.Uuid
+  parent   AcademicEntity?   @relation("AcademicHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children AcademicEntity[]  @relation("AcademicHierarchy")
+
+  members User[] @relation("UserDepartment")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentId, name, type])
+  @@index([type])
+  @@map("academic_entities")
+}
+
+// ---------------------------------------------------------------------------
+// Taxonomy (hierarchical, multi-disciplinary)
+// ---------------------------------------------------------------------------
+
+model TaxonomyTag {
+  id          String             @id @default(uuid()) @db.Uuid
+  slug        String             @unique
+  label       String
+  discipline  TaxonomyDiscipline
+  description String?
+
+  parentId String?       @db.Uuid
+  parent   TaxonomyTag?  @relation("TaxonomyHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children TaxonomyTag[] @relation("TaxonomyHierarchy")
+
+  challenges ChallengeTag[]
+  projects   ProjectTag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentId, label])
+  @@index([discipline])
+  @@map("taxonomy_tags")
+}
+
+// ---------------------------------------------------------------------------
+// Challenges
+// ---------------------------------------------------------------------------
+
+model Challenge {
+  id                 String              @id @default(uuid()) @db.Uuid
+  title              String
+  description        String
+  visibility         ChallengeVisibility @default(PUBLIC)
+  /// Micro-grant in the smallest currency unit (e.g. cents) to avoid float drift.
+  budgetMicroGrant   BigInt              @default(0)
+  currency           String              @default("USD") @db.Char(3)
+  status             ChallengeStatus     @default(DRAFT)
+  submissionDeadline DateTime?
+  awardedAt          DateTime?
+
+  companyId String  @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // The company rep who created the challenge (for RLS owner checks).
+  postedById String @db.Uuid
+  postedBy   User   @relation("ChallengePoster", fields: [postedById], references: [id], onDelete: Restrict)
+
+  projects        Project[]
+  tags            ChallengeTag[]
+  ndas            Nda[]
+  accessGrants    ChallengeAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+  @@index([visibility])
+  @@map("challenges")
+}
+
+model ChallengeTag {
+  challengeId String      @db.Uuid
+  tagId       String      @db.Uuid
+  challenge   Challenge   @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  tag         TaxonomyTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([challengeId, tagId])
+  @@map("challenge_tags")
+}
+
+/// Explicit access grants for PRIVATE_NDA challenges. Every signed NDA produces
+/// one row here; the RLS policy on `challenges` consults this table to decide
+/// whether a non-owner can `SELECT` a private row.
+model ChallengeAccess {
+  id          String   @id @default(uuid()) @db.Uuid
+  challengeId String   @db.Uuid
+  userId      String   @db.Uuid
+  grantedAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+  @@map("challenge_access")
+}
+
+// ---------------------------------------------------------------------------
+// Projects (solutions to challenges)
+// ---------------------------------------------------------------------------
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  abstract    String
+  /// Repository URLs, deck links, attachments metadata, etc.
+  artifacts   Json          @default("{}")
+  status      ProjectStatus @default(PROPOSED)
+
+  challengeId String     @db.Uuid
+  challenge   Challenge  @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  members ProjectMember[]
+  tags    ProjectTag[]
+
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([challengeId])
+  @@index([status])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String              @db.Uuid
+  userId    String              @db.Uuid
+  role      ProjectMemberRole
+  joinedAt  DateTime            @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model ProjectTag {
+  projectId String      @db.Uuid
+  tagId     String      @db.Uuid
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag       TaxonomyTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, tagId])
+  @@map("project_tags")
+}
+
+// ---------------------------------------------------------------------------
+// NDAs (digital signatures)
+// ---------------------------------------------------------------------------
+
+model Nda {
+  id          String    @id @default(uuid()) @db.Uuid
+  challengeId String    @db.Uuid
+  companyId   String    @db.Uuid
+  /// Markdown / HTML text of the agreement actually signed (snapshotted).
+  documentBody String
+  /// SHA-256 of the document body, captured at signing time.
+  documentHash String   @db.Char(64)
+  status       NdaStatus @default(PENDING)
+  effectiveAt  DateTime?
+  expiresAt    DateTime?
+
+  challenge   Challenge      @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  signatures  NdaSignature[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([challengeId])
+  @@index([companyId])
+  @@map("ndas")
+}
+
+model NdaSignature {
+  id            String    @id @default(uuid()) @db.Uuid
+  ndaId         String    @db.Uuid
+  userId        String    @db.Uuid
+  /// Cryptographic signature payload (e.g. detached PKCS#7, JWS, or HMAC).
+  signaturePayload String
+  /// IP / user-agent / geolocation captured at signing.
+  signatureContext Json    @default("{}")
+  signedAt      DateTime  @default(now())
+
+  nda  Nda  @relation(fields: [ndaId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ndaId, userId])
+  @@index([userId])
+  @@map("nda_signatures")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log – append-only trail used by RLS-protected mutations.
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  entityType String
+  entityId   String?  @db.Uuid
+  payload    Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_events")
+}
