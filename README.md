@@ -60,6 +60,44 @@ npm run db:seed               # optional: minimal reference data
 npm run dev
 ```
 
+## Authentication & API
+
+Authentication is handled by **NextAuth.js (Auth.js v5)** with a Credentials
+provider backed by a bcrypt-hashed `User.passwordHash`. Sessions are JWTs.
+
+### Signup rules
+
+`POST /api/auth/signup` enforces role-conditional validation:
+
+| Role | Extra rule |
+| --- | --- |
+| `STUDENT`, `PROFESSOR` | Email must end with one of `ACADEMIC_EMAIL_SUFFIXES` (default `.edu`, `.edu.jo`, `.ac.jo`, `.edu.sa`, `.ac.uk`). |
+| `COMPANY_REP` | Must supply `companyLegalName`, `companyDisplayName`, and a `registrationNumber` that matches `COMMERCIAL_REGISTRATION_REGEX`. |
+
+A Company row is created (or reused by registration number) atomically with
+the user inside one transaction.
+
+### Challenge lifecycle
+
+| Method | Path | Caller | Effect |
+| --- | --- | --- | --- |
+| `POST` | `/api/challenges` | `COMPANY_REP` (verified company) | Creates a challenge owned by the rep's company. |
+| `POST` | `/api/challenges/:id/applications` | `STUDENT` | Submits a project proposal linked to a `PROFESSOR` supervisor. Project starts in `PROPOSED`. |
+| `PUT`  | `/api/applications/:id/approve` | `PROFESSOR` (assigned supervisor) | Moves the project to `IN_PROGRESS`. If the challenge is `PRIVATE_NDA`, an `Nda` record is generated in the same transaction (`lib/nda.ts`). |
+
+Cross-cutting concerns:
+
+- **RBAC** — `lib/rbac.ts` exposes `requireUser()` / `requireRole(...roles)`
+  used at the top of every protected handler. The edge middleware in
+  `middleware.ts` rejects unauthenticated requests at the network edge,
+  except for `/api/auth/*` (NextAuth's own endpoints + signup).
+- **Error handling** — every handler wraps its body in `try/catch` and
+  forwards to `toErrorResponse()` in `lib/errors.ts`, which translates
+  `ApiError`, `ZodError`, and Prisma errors (`P2002`, `P2025`) into JSON
+  responses with stable error codes.
+- **Audit log** — application and approval mutations append an
+  `AuditEvent` row tagged with actor and previous/next state.
+
 ## Scripts
 
 | Command | Description |

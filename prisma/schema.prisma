@@ -96,6 +96,9 @@ model User {
   email           String    @unique @db.Citext
   fullName        String
   role            UserRole
+  /// bcrypt hash of the user's password. Null when auth is delegated to an
+  /// external IdP (OAuth, SSO).
+  passwordHash    String?
   reputationScore Int       @default(0)
   /// Flexible profile blob (bio, links, avatar, locale, etc.)
   profileData     Json      @default("{}")
@@ -129,6 +132,9 @@ model Company {
   legalName   String   @unique
   displayName String
   taxId       String?  @unique
+  /// Commercial registration number. Validated at signup and required for
+  /// any company that posts challenges.
+  registrationNumber String? @unique
   /// Logo, website, sector tags, contact info, etc.
   profileData Json     @default("{}")
   verified    Boolean  @default(false)
