@@ -123,6 +123,24 @@ Server data fetchers live in `lib/data/{student,company,explorer}.ts`
 the DB is unreachable, so the pages render even before the database is
 provisioned.
 
+## Deployment (VMware)
+
+The platform is deployed onto a VMware vSphere cluster — **no containers,
+no Kubernetes**. Workload isolation, scaling and rollback all rely on
+VM-level primitives (linked-clone templates, vDS portgroups, snapshots,
+keepalived VIPs). The full topology, provisioning scripts, nginx/Postgres
+configuration, systemd units and first-boot guest customization scripts
+live under `infra/vmware/`. Start with `infra/vmware/README.md`.
+
+Quick start once vCenter credentials are populated in
+`infra/vmware/env/.env.shared`:
+
+```
+make -C infra/vmware build
+make -C infra/vmware provision
+make -C infra/vmware deploy TARBALL=dist/jaser-*.tar.gz
+```
+
 ## Scripts
 
 | Command | Description |

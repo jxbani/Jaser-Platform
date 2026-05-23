@@ -1,0 +1,47 @@
+[Unit]
+Description=Jaser Platform — Next.js application
+Documentation=https://github.com/jxbani/jaser-platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jaser
+Group=jaser
+WorkingDirectory=/opt/jaser/current
+EnvironmentFile=/opt/jaser/shared/.env.app
+
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p ${PORT} -H ${HOSTNAME}
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillMode=mixed
+LimitNOFILE=65536
+
+# --- Hardening -------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/jaser/shared /opt/jaser/current/.next/cache
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @debug @cpu-emulation @obsolete @raw-io @privileged
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jaser-app
+
+[Install]
+WantedBy=multi-user.target

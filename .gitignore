@@ -12,3 +12,9 @@ dist
 coverage
 .tsbuildinfo
 next-env.d.ts
+
+# VMware deployment — only commit the *.template files
+infra/vmware/env/.env.shared
+infra/vmware/env/.env.app
+infra/vmware/env/.env.db
+infra/vmware/env/.env.web

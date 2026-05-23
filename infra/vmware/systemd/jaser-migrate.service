@@ -1,0 +1,24 @@
+[Unit]
+Description=Jaser Platform — prisma migrate deploy (oneshot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jaser
+Group=jaser
+WorkingDirectory=/opt/jaser/current
+EnvironmentFile=/opt/jaser/shared/.env.app
+ExecStart=/opt/jaser/current/node_modules/.bin/prisma migrate deploy
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/jaser/shared
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jaser-migrate
+
+[Install]
+WantedBy=multi-user.target

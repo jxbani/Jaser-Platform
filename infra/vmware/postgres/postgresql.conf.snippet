@@ -1,0 +1,28 @@
+# Appended to /var/lib/pgsql/16/data/postgresql.conf by first-boot.
+listen_addresses        = '10.10.30.10'            # bind only to Data VLAN
+port                    = 5432
+max_connections         = 200
+shared_buffers          = 4GB                      # ~25% of 16 GB
+effective_cache_size    = 12GB
+work_mem                = 32MB
+maintenance_work_mem    = 512MB
+
+ssl                     = on
+ssl_cert_file           = '/etc/pki/postgres/server.crt'
+ssl_key_file            = '/etc/pki/postgres/server.key'
+password_encryption     = scram-sha-256
+
+# WAL & replication
+wal_level               = replica
+archive_mode            = on
+archive_command         = 'test ! -f /srv/pg-wal-archive/%f && cp %p /srv/pg-wal-archive/%f'
+max_wal_senders         = 5
+wal_keep_size           = 2GB
+hot_standby             = on
+
+# Observability
+log_destination         = 'jsonlog'
+log_directory           = 'log'
+log_filename            = 'postgresql-%Y-%m-%d.json'
+log_rotation_age        = 1d
+log_min_duration_statement = 500ms

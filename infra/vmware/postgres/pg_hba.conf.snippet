@@ -1,0 +1,10 @@
+# Replaces /var/lib/pgsql/16/data/pg_hba.conf at first-boot.
+# Only the App VLAN may talk to Postgres; replication uses the Data VLAN.
+
+# TYPE   DATABASE         USER          ADDRESS             METHOD
+local    all              postgres                          peer
+host     all              all           127.0.0.1/32        scram-sha-256
+hostssl  jaser_platform   jaser_app     10.10.20.0/24       scram-sha-256
+hostssl  jaser_platform   jaser_ro      10.10.20.0/24       scram-sha-256
+hostssl  replication      replica       10.10.30.0/24       scram-sha-256
+# Everything else is denied implicitly.
