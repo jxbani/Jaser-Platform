@@ -98,6 +98,31 @@ Cross-cutting concerns:
 - **Audit log** — application and approval mutations append an
   `AuditEvent` row tagged with actor and previous/next state.
 
+## Frontend
+
+The UI is built with **shadcn/ui** primitives over Tailwind CSS, with full
+**RTL** (Arabic) support. The active locale is stored in the `locale`
+cookie; `app/layout.tsx` reads it to set `<html lang dir>` and shadcn
+primitives use Tailwind's logical-property utilities (`ms-*`, `pe-*`,
+`start-*`, `end-*`) so layouts mirror correctly. A `LocaleToggle`
+client component flips the cookie through a server action and revalidates
+the layout.
+
+Three top-level pages, all routed under the App Router and rendered as
+React Server Components — only the filter form and locale toggle opt into
+the client bundle:
+
+| Path | Audience | What it shows |
+| --- | --- | --- |
+| `/student` | `STUDENT` | "Challenges recommended for your major" (ranked by tag overlap), active project status list, and a micro-grant tracking widget with awarded / pending / disbursed totals + progress bar. |
+| `/company` | `COMPANY_REP` | Talent discovery pool (students sorted by `reputationScore`), active challenges posted by the rep's company, and a table of applications pending review. |
+| `/explorer` | Public | Universal Taxonomy Explorer with advanced filtering by University, Faculty, Tech Tag and Challenge Status, plus full-text search across public project titles and abstracts. |
+
+Server data fetchers live in `lib/data/{student,company,explorer}.ts`
+(marked `import 'server-only'`) and gracefully degrade to empty results if
+the DB is unreachable, so the pages render even before the database is
+provisioned.
+
 ## Scripts
 
 | Command | Description |
